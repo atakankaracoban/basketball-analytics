@@ -7,7 +7,7 @@ import numpy as np
 from scipy import stats
 import time
 
-PLAYER_NAME = "Michael Jordan"
+PLAYER_NAME = "Nikola Jokić"
 
 def get_player_id(name):
     all_players = players.get_players()
@@ -185,11 +185,26 @@ if weaknesses:
     summary_lines.append("CONCERNS:")
     for w in weaknesses:
         summary_lines.append(f"  - {w.title()}")
+# Era-adjusted verdict
+# Calculate league average game score for context
+league_gs_avg = (
+    (df_league["PTS"] * 1.0) +
+    (df_league["REB"] * 1.2) +
+    (df_league["AST"] * 1.5) +
+    (df_league["STL"] * 2.0) +
+    (df_league["BLK"] * 1.3)
+) * df_league["FG_PCT"]
+league_gs_mean = league_gs_avg.mean()
+gs_above_avg = gs_avg - league_gs_mean
+
+summary_lines.append("")
+summary_lines.append(f"League avg score: {league_gs_mean:.1f}")
+summary_lines.append(f"Player above avg: +{gs_above_avg:.1f}")
 summary_lines.append("")
 summary_lines.append("VERDICT:")
-if gs_avg >= 25: summary_lines.append("  MVP-caliber season.")
-elif gs_avg >= 18: summary_lines.append("  All-Star caliber season.")
-elif gs_avg >= 12: summary_lines.append("  Solid starter.")
+if gs_above_avg >= 8: summary_lines.append("  MVP-caliber season.")
+elif gs_above_avg >= 5: summary_lines.append("  All-Star caliber season.")
+elif gs_above_avg >= 2: summary_lines.append("  Solid starter.")
 else: summary_lines.append("  Rotation player.")
 
 # ── Build Dashboard ────────────────────────────────────────
