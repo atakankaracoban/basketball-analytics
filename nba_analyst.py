@@ -45,7 +45,54 @@ WEIGHTS_REGRESSION = {
     "BLK": 0.2,
     "TOV": -1.2
 }
+ALLSTARS = {
+    "2021-22": [
+        "LeBron James", "Stephen Curry", "Andrew Wiggins",
+        "Nikola Jokic", "Draymond Green", "Karl-Anthony Towns",
+        "Luka Doncic", "Devin Booker", "DeMar DeRozan",
+        "Donovan Mitchell", "Rudy Gobert", "Chris Paul",
+        "Joel Embiid", "Trae Young", "James Harden",
+        "Jayson Tatum", "Jimmy Butler", "Fred VanVleet",
+        "Ja Morant", "Darius Garland", "Khris Middleton",
+        "LaMelo Ball", "Zach LaVine", "Jarrett Allen"
+    ],
+    "2022-23": [
+        "LeBron James", "Stephen Curry", "Nikola Jokic",
+        "Luka Doncic", "Zion Williamson", "Shai Gilgeous-Alexander",
+        "Damian Lillard", "Donovan Mitchell", "Lauri Markkanen",
+        "Paul George", "Jaren Jackson Jr.", "Domantas Sabonis",
+        "Joel Embiid", "Giannis Antetokounmpo", "Jayson Tatum",
+        "Kyrie Irving", "Jaylen Brown", "Julius Randle",
+        "Ja Morant", "De'Aaron Fox", "Pascal Siakam",
+        "Tyrese Haliburton", "Khris Middleton", "Bam Adebayo"
+    ],
+    "2023-24": [
+        "LeBron James", "Stephen Curry", "Kevin Durant",
+        "Nikola Jokic", "Shai Gilgeous-Alexander", "Paul George",
+        "Luka Doncic", "Giannis Antetokounmpo", "Tyrese Haliburton",
+        "Damian Lillard", "Jayson Tatum", "Joel Embiid",
+        "Donovan Mitchell", "Bam Adebayo", "Paolo Banchero",
+        "Trae Young", "Devin Booker", "Anthony Edwards",
+        "Scottie Barnes", "Jalen Brunson", "Karl-Anthony Towns",
+        "Tyrese Maxey", "Kawhi Leonard", "Victor Wembanyama"
+    ],
+    "2024-25": [
+        "LeBron James", "Stephen Curry", "Kevin Durant",
+        "Nikola Jokic", "Shai Gilgeous-Alexander",
+        "Jaren Jackson Jr.", "Luka Doncic",
+        "Giannis Antetokounmpo", "Tyrese Haliburton",
+        "Damian Lillard", "Jayson Tatum", "Joel Embiid",
+        "Donovan Mitchell", "Bam Adebayo", "Cade Cunningham",
+        "Trae Young", "Devin Booker", "Anthony Edwards",
+        "Karl-Anthony Towns", "Jalen Brunson", "Darius Garland",
+        "Tyrese Maxey", "Alperen Sengun", "Victor Wembanyama"
+    ]
+}
 
+ALLSTAR_FEATURES = [
+    "PTS", "REB", "AST", "STL", "BLK", "TOV",
+    "FG_PCT", "FG3_PCT", "FT_PCT", "MIN", "GP", "AGE"
+]
 # ============================================================
 # NBA ANALYST CLASS
 # ============================================================
@@ -440,7 +487,147 @@ class NBAAnalyst:
         ax2.grid(color="gray", alpha=0.2)
         plt.tight_layout()
         self._save("regression.png")
+def allstar_predictor(self):
+    """Predict All-Star probability for current season players."""
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import roc_auc_score
 
+    print("\nBuilding All-Star Predictor...")
+    print("Fetching 4 seasons of training data...\n")
+
+    # Build training dataset
+    all_seasons = []
+    for season, allstars in ALLSTARS.items():
+        print(f"  Fetching {season}...")
+        df = self._get_league(season).copy()
+        df["SEASON"] = season
+        allstars_lower = [a.lower() for a in allstars]
+        df["IS_ALLSTAR"] = df["PLAYER_NAME"].str.lower().isin(
+            allstars_lower
+        ).astype(int)
+        all_seasons.append(df)
+
+    df_all = pd.concat(all_seasons, ignore_index=True)
+
+    # Add FG_PCT if missing
+    if "FG_PCT" not in df_all.columns:
+        df_all["FG_PCT"] = df_all["FGM"] / df_all["FGA"]
+    if "FG3_PCT" not in df_all.columns:
+        df_all["FG3_PCT"] = df_all["FG3M"] / df_all["FG3A"]
+    if "FT_PCT" not in df_all.columns:
+        df_all["FT_PCT"] = df_all["FTM"] / df_all["FTA"]
+
+    df_clean = df_all[
+        ALLSTAR_FEATURES + ["IS_ALLSTAR", "PLAYER_NAME"]
+    ].dropna()
+
+    X = df_clean[ALLSTAR_FEATURES].values
+    y = df_clean["IS_ALLSTAR"].values
+
+    # Train/test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s  = scaler.transform(X_test)
+
+    # Train model
+    print("\nTraining Random Forest...")
+    model = RandomForestClassifier(
+        n_estimators=200, max_depth=8,
+        random_state=42, class_weight="balanced"
+    )
+    model.fit(X_train_s, y_train)
+    y_prob = model.predict_proba(X_test_s)[:, 1]
+    auc = roc_auc_score(y_test, y_prob)
+    print(f"Model AUC: {auc:.4f}")
+
+    # Predict current season
+    print(f"\nPredicting {CURRENT_SEASON}...")
+    df_curr = self._get_league(CURRENT_SEASON).copy()
+    if "FG_PCT" not in df_curr.columns:
+        df_curr["FG_PCT"]  = df_curr["FGM"] / df_curr["FGA"]
+    if "FG3_PCT" not in df_curr.columns:
+        df_curr["FG3_PCT"] = df_curr["FG3M"] / df_curr["FG3A"]
+    if "FT_PCT" not in df_curr.columns:
+        df_curr["FT_PCT"]  = df_curr["FTM"] / df_curr["FTA"]
+
+    df_curr_clean = df_curr[
+        ALLSTAR_FEATURES + ["PLAYER_NAME"]
+    ].dropna()
+
+    X_curr = scaler.transform(df_curr_clean[ALLSTAR_FEATURES].values)
+    probs = model.predict_proba(X_curr)[:, 1]
+    df_curr_clean = df_curr_clean.copy()
+    df_curr_clean["ALLSTAR_PROB"] = (probs * 100).round(1)
+
+    top25 = df_curr_clean.sort_values(
+        "ALLSTAR_PROB", ascending=False
+    ).head(25)
+
+    print("\n" + "=" * 50)
+    print(f"ALL-STAR PREDICTIONS — {CURRENT_SEASON}")
+    print(f"Model AUC: {auc:.4f}")
+    print("=" * 50)
+    for _, row in top25.iterrows():
+        bar = "█" * int(row["ALLSTAR_PROB"] / 5)
+        print(f"{row['PLAYER_NAME']:<28} "
+              f"{row['ALLSTAR_PROB']:>5.1f}%  {bar}")
+
+    # Feature importance chart
+    importance_df = pd.DataFrame({
+        "Feature":    ALLSTAR_FEATURES,
+        "Importance": model.feature_importances_
+    }).sort_values("Importance", ascending=False)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+    fig.patch.set_facecolor("#0d1117")
+    fig.suptitle(
+        f"All-Star Predictor — {CURRENT_SEASON} | AUC={auc:.3f}",
+        fontsize=14, fontweight="bold", color="white"
+    )
+    self._style(ax1)
+    self._style(ax2)
+
+    # Feature importance
+    colors = ["gold" if i < 3 else "steelblue"
+              for i in range(len(importance_df))]
+    ax1.barh(importance_df["Feature"],
+             importance_df["Importance"],
+             color=colors, alpha=0.85)
+    ax1.invert_yaxis()
+    ax1.set_title("Feature Importance",
+                  color="white", fontsize=11)
+    ax1.set_xlabel("Importance Score", color="white")
+
+    # Top 20 predictions
+    top20 = top25.head(20)
+    colors2 = ["gold" if p >= 70 else "steelblue" if p >= 40
+               else "cadetblue" for p in top20["ALLSTAR_PROB"]]
+    bars = ax2.barh(top20["PLAYER_NAME"],
+                    top20["ALLSTAR_PROB"],
+                    color=colors2, alpha=0.85)
+    for bar, val in zip(bars, top20["ALLSTAR_PROB"]):
+        ax2.text(bar.get_width() + 0.5,
+                 bar.get_y() + bar.get_height()/2,
+                 f"{val}%", va="center",
+                 color="white", fontsize=9)
+    ax2.invert_yaxis()
+    ax2.set_xlim(0, 108)
+    ax2.axvline(x=50, color="yellow", linestyle="--",
+                alpha=0.5, linewidth=1)
+    ax2.set_title(
+        f"All-Star Probability — {CURRENT_SEASON}",
+        color="white", fontsize=11
+    )
+    ax2.set_xlabel("Probability %", color="white")
+
+    plt.tight_layout()
+    self._save("allstar_predictions.png")
     def switch_weights(self):
         if self.weights == WEIGHTS_INTUITIVE:
             self.weights = WEIGHTS_REGRESSION
@@ -476,11 +663,12 @@ def main():
         print("  2. Prospect Rankings")
         print("  3. Correlation Analysis")
         print("  4. Regression Analysis")
-        print("  5. Switch Weight System")
-        print("  6. Exit")
+        print("  5. All-Star Predictor")
+        print("  6. Switch Weight System")
+        print("  7. Exit")
         print("─" * 45)
 
-        choice = input("\nSelect option (1-6): ").strip()
+        choice = input("\nSelect option (1-7): ").strip()
 
         if choice == "1":
             name = input("Enter player name: ").strip()
@@ -492,12 +680,14 @@ def main():
         elif choice == "4":
             analyst.regression_analysis()
         elif choice == "5":
-            analyst.switch_weights()
+            analyst.allstar_predictor()
         elif choice == "6":
+            analyst.switch_weights()
+        elif choice == "7":
             print("\nGoodbye.\n")
             break
         else:
-            print("Invalid option. Choose 1-6.")
+            print("Invalid option. Choose 1-7.")
 
 if __name__ == "__main__":
     main()
