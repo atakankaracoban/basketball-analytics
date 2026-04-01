@@ -391,7 +391,170 @@ def run_queries(conn):
         LIMIT 10                 
     """, conn)
     print(result.to_string(index=False))
+def advanced_queries(conn):
+    """
+    Advanced SQL concepts used in professional analytics.
+    These are the queries that separate junior from senior analysts.
+    """
 
+    print("\n" + "=" * 60)
+    print("ADVANCED SQL QUERIES")
+    print("=" * 60)
+
+    # ── Window Function 1: RANK() ───────────────────────────
+    # RANK() assigns a rank to each row within a partition
+    # PARTITION BY is like GROUP BY but doesn't collapse rows
+    # You keep all rows AND get the rank within each group
+    print("\n--- Window Function: Player scoring rank by age group ---")
+    print("Concept: RANK() OVER (PARTITION BY age ORDER BY pts)\n")
+
+    result = pd.read_sql("""
+        WITH ranked AS (
+            SELECT
+                player_name,
+                CAST(age AS INTEGER) as age,
+                pts,
+                RANK() OVER (
+                    PARTITION BY CAST(age AS INTEGER)
+                    ORDER BY pts DESC
+                ) as rank_in_age_group
+            FROM season_stats
+            WHERE season = '2025-26'
+              AND gp >= 30
+        )
+        SELECT *
+        FROM ranked
+        WHERE rank_in_age_group <= 3
+        ORDER BY age, rank_in_age_group
+    """, conn)
+    print(result.to_string(index=False))
+
+    # ── Window Function 2: Running total ───────────────────
+    print("\n--- Window Function: Cumulative wins by team ---")
+    print("Concept: SUM() OVER (ORDER BY wins) — running total\n")
+
+    result = pd.read_sql("""
+        SELECT
+            team_name,
+            wins,
+            losses,
+            ROUND(win_pct, 3) as win_pct,
+            SUM(wins) OVER (
+                ORDER BY wins DESC
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) as cumulative_wins
+        FROM teams
+        WHERE season = '2025-26'
+        ORDER BY wins DESC
+        LIMIT 10
+    """, conn)
+    print(result.to_string(index=False))
+
+    # ── CTE: Common Table Expression ───────────────────────
+    # A CTE is a named temporary result set
+    # Think of it as a variable that holds a query result
+    # Makes complex queries readable and modular
+    print("\n--- CTE: Players outperforming their age group average ---")
+    print("Concept: WITH cte AS (query) SELECT FROM cte\n")
+
+    result = pd.read_sql("""
+        WITH age_averages AS (
+            SELECT
+                CAST(age AS INTEGER) as age_group,
+                AVG(pts) as avg_pts_for_age,
+                AVG(reb) as avg_reb_for_age,
+                AVG(ast) as avg_ast_for_age
+            FROM season_stats
+            WHERE season = '2025-26'
+              AND gp >= 20
+            GROUP BY CAST(age AS INTEGER)
+        )
+        SELECT
+            s.player_name,
+            CAST(s.age AS INTEGER) as age,
+            s.pts,
+            ROUND(a.avg_pts_for_age, 1) as age_avg_pts,
+            ROUND(s.pts - a.avg_pts_for_age, 1) as pts_above_age_avg
+        FROM season_stats s
+        JOIN age_averages a
+          ON CAST(s.age AS INTEGER) = a.age_group
+        WHERE s.season = '2025-26'
+          AND s.gp >= 30
+          AND s.pts > a.avg_pts_for_age * 2.0
+        ORDER BY pts_above_age_avg DESC
+        LIMIT 15
+    """, conn)
+    print(result.to_string(index=False))
+
+    # ── Self JOIN: Year over year comparison ───────────────
+    # A self JOIN joins a table to itself
+    # This lets you compare a player's stats across seasons
+    # without needing a separate table
+    print("\n--- Self JOIN: Players who improved most vs last season ---")
+    print("Concept: JOIN season_stats s1 ON season_stats s2\n")
+
+    result = pd.read_sql("""
+        SELECT
+            s1.player_name,
+            s1.pts as pts_this_season,
+            s2.pts as pts_last_season,
+            ROUND(s1.pts - s2.pts, 1) as pts_improvement,
+            s1.age as current_age
+        FROM season_stats s1
+        JOIN season_stats s2
+          ON s1.player_id = s2.player_id
+          AND s1.season = '2025-26'
+          AND s2.season = '2024-25'
+        WHERE s1.gp >= 30
+          AND s2.gp >= 30
+          AND s1.pts > s2.pts
+        ORDER BY pts_improvement DESC
+        LIMIT 15
+    """, conn)
+    print(result.to_string(index=False))
+
+    # ── CTE + Window Function combined ─────────────────────
+    # This is senior analyst level SQL
+    # Combining CTEs with window functions for complex analysis
+    print("\n--- Advanced: Efficiency percentile within position group ---")
+    print("Concept: CTE + PERCENT_RANK() window function\n")
+
+    result = pd.read_sql("""
+        WITH player_efficiency AS (
+            SELECT
+                player_name,
+                age,
+                pts,
+                reb,
+                ast,
+                fg_pct,
+                gp,
+                (pts + reb * 1.2 + ast * 1.5 +
+                 stl * 2.0 + blk * 1.0 - tov * 2.0
+                ) * fg_pct as efficiency_score
+            FROM season_stats
+            WHERE season = '2025-26'
+              AND gp >= 30
+        ),
+        ranked AS (
+            SELECT
+                player_name,
+                age,
+                pts,
+                ROUND(efficiency_score, 2) as eff_score,
+                ROUND(
+                    PERCENT_RANK() OVER (
+                        ORDER BY efficiency_score
+                    ) * 100, 1
+                ) as percentile
+            FROM player_efficiency
+        )
+        SELECT *
+        FROM ranked
+        WHERE percentile >= 90
+        ORDER BY percentile DESC
+    """, conn)
+    print(result.to_string(index=False))
 # ============================================================
 # MAIN
 # ============================================================
@@ -417,7 +580,7 @@ def main():
 
     # Run SQL queries
     run_queries(conn)
-
+    advanced_queries(conn)
     conn.close()
     print("\nDatabase connection closed.")
     print(f"Database saved as: {DB_PATH}")
