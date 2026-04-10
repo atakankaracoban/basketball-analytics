@@ -54,7 +54,7 @@ PLAYOFF_TEAMS_WEST = {
     4: "Houston Rockets",       # Lakers ile yer değiştirebilir
     5: "Los Angeles Lakers",    # Luka + Reaves yaralı — kritik
     6: "Minnesota Timberwolves",
-    7: "Los Angeles Clippers",  # Play-in projeksiyonu
+    7: "LA Clippers",  # Play-in projeksiyonu
     8: "Golden State Warriors", # Play-in projeksiyonu
 }
 
@@ -74,12 +74,36 @@ TEAM_IDS = {
     "Houston Rockets":          1610612745,
     "Los Angeles Lakers":       1610612747,
     "Minnesota Timberwolves":   1610612750,
-    "Los Angeles Clippers":     1610612746,
+    "LA Clippers":              1610612746,
     "Golden State Warriors":    1610612744,
 }
 
 SEASON = "2025-26"
+# ============================================================
+# HEALTH MODIFIER — Manuel yaralanma/sağlık düzeltmesi
+# ============================================================
+# Aralık: -2.0 (kritik yaralanma) → +0.5 (tam sağlık/momentum)
+# 0.0 = nötr, dokunma
+# Playoff başlamadan önce güncelle.
 
+HEALTH_MODIFIERS = {
+    "Los Angeles Lakers":       -1.5,  # Luka + Reaves out
+    "Detroit Pistons":          -0.5,  # Cade son haftalarda sınırlı
+    "Boston Celtics":           +0.3,  # Tatum döndü, momentum var
+    "Oklahoma City Thunder":     0.0,  # Tam sağlık
+    "San Antonio Spurs":         0.0,
+    "Denver Nuggets":            0.0,
+    "New York Knicks":           0.0,
+    "Cleveland Cavaliers":       0.0,
+    "Houston Rockets":           0.0,
+    "Minnesota Timberwolves":    0.0,
+    "LA Clippers":               0.0,
+    "Golden State Warriors":     0.0,
+    "Atlanta Hawks":             0.0,
+    "Toronto Raptors":           0.0,
+    "Philadelphia 76ers":        0.0,
+    "Charlotte Hornets":         0.0,
+}
 # ============================================================
 # VERİ ÇEKME
 # ============================================================
@@ -509,7 +533,12 @@ def calculate_viability_score(shot_df, def_df, depth_df, clutch_df, opt_df):
                 scores.loc[team, "playoff_viability"] += bonus
 
     scores["playoff_viability"] = scores["playoff_viability"].clip(0, 10)
+    # Health modifier uygula
+    for team in scores.index:
+        modifier = HEALTH_MODIFIERS.get(team, 0.0)
+        scores.loc[team, "playoff_viability"] += modifier
 
+    scores["playoff_viability"] = scores["playoff_viability"].clip(0, 10)
     # Konferans bilgisi ekle
     conf_map = {t: "East" for t in PLAYOFF_TEAMS_EAST.values()}
     conf_map.update({t: "West" for t in PLAYOFF_TEAMS_WEST.values()})
