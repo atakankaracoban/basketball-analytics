@@ -15,15 +15,15 @@ Veri: nba_api (gerçek zamanlı)
 Çıktı: 16 takım için playoff viability skoru + bracket tahmini
 """
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+import pandas as pd  # type: ignore
+import numpy as np  # type: ignore
+import matplotlib.pyplot as plt  # type: ignore
+import matplotlib.patches as mpatches  # type: ignore
 import time
 import warnings
 warnings.filterwarnings("ignore")
 
-from nba_api.stats.endpoints import (
+from nba_api.stats.endpoints import (  # type: ignore
     leaguedashteamstats,
     leaguedashteamclutch,
     leaguedashlineups,
@@ -168,6 +168,28 @@ def fetch_bench_stats():
 # ============================================================
 # KRİTER 1: SHOT CREATION UNDER CONSTRAINT
 # ============================================================
+
+# ============================================================
+# YARDIMCI FONKSİYONLAR
+# ============================================================
+
+def _normalize(series, low_val, high_val):
+    """
+    Pandas Series'i [low_val, high_val] aralığına normalize et.
+    low_val > high_val ise ters normalleşme (düşük = iyi).
+    """
+    mn, mx = series.min(), series.max()
+    if mx == mn:
+        return pd.Series([5.0] * len(series), index=series.index)
+
+    if low_val < high_val:
+        # Normal: yüksek değer iyi
+        return low_val + (series - mn) / (mx - mn) * (high_val - low_val)
+    else:
+        # Ters: düşük değer iyi
+        return high_val + (mx - series) / (mx - mn) * (low_val - high_val)
+
+
 # Soru: Birinci seçenek kapatıldığında ofans hayatta kalabiliyor mu?
 #
 # Metrikler:
@@ -319,35 +341,36 @@ def score_weak_link(df_player):
     """
     results = {}
 
+    
     for team_name, team_id in TEAM_IDS.items():
-        team_players = df_player[df_player["TEAM_ID"] == team_id]
+            team_players = df_player[df_player["TEAM_ID"] == team_id].copy()
 
-        if team_players.empty:
-            continue
+            if team_players.empty:
+                continue
 
-        # Starter vs bench ayrımı (MIN > 25 = starter proxy)
-        starters = team_players[team_players["MIN"] >= 25]
-        bench    = team_players[(team_players["MIN"] >= 8) & (team_players["MIN"] < 25)]
+            # Sabit threshold yerine takım içi sıralama
+            # Her takımın en çok oynayan 8 oyuncusu = rotation
+            # İlk 5 = starter, sonraki 3 = core bench
+            team_players = team_players[team_players["MIN"] >= 6].copy()
+            team_players = team_players.sort_values("MIN", ascending=False)
 
-        starter_pts = starters["PTS"].sum()
-        bench_pts   = bench["PTS"].sum() if len(bench) > 0 else 0
-        total_pts   = starter_pts + bench_pts + 0.001
+            starters = team_players.head(5)
+            bench    = team_players.iloc[5:9]   # 6-9. en çok oynayan
 
-        # Bench katkı oranı
-        bench_contribution = bench_pts / total_pts
+            starter_pts = starters["PTS"].sum()
+            bench_pts   = bench["PTS"].sum() if len(bench) > 0 else 0
+            total_pts   = starter_pts + bench_pts + 0.001
 
-        # Bench'in ortalama +/- (PLUS_MINUS varsa)
-        bench_pm = bench["PLUS_MINUS"].mean() if len(bench) > 0 and "PLUS_MINUS" in bench.columns else 0
+            bench_contribution = bench_pts / total_pts
+            bench_pm = bench["PLUS_MINUS"].mean() if len(bench) > 0 and "PLUS_MINUS" in bench.columns else 0
+            depth_count = len(team_players)
 
-        # Kadro derinliği: 20+ dakika oynayan kaç oyuncu var?
-        depth_count = len(team_players[team_players["MIN"] >= 20])
-
-        results[team_name] = {
-            "bench_pts":         bench_pts,
-            "bench_contribution": bench_contribution,
-            "bench_pm":          bench_pm,
-            "depth_count":       depth_count,
-        }
+            results[team_name] = {
+                "bench_pts":          bench_pts,
+                "bench_contribution": bench_contribution,
+                "bench_pm":           bench_pm,
+                "depth_count":        depth_count,
+            }
 
     df = pd.DataFrame(results).T
 
@@ -533,12 +556,7 @@ def calculate_viability_score(shot_df, def_df, depth_df, clutch_df, opt_df):
                 scores.loc[team, "playoff_viability"] += bonus
 
     scores["playoff_viability"] = scores["playoff_viability"].clip(0, 10)
-    # Health modifier uygula
-    for team in scores.index:
-        modifier = HEALTH_MODIFIERS.get(team, 0.0)
-        scores.loc[team, "playoff_viability"] += modifier
-
-    scores["playoff_viability"] = scores["playoff_viability"].clip(0, 10)
+    
     # Konferans bilgisi ekle
     conf_map = {t: "East" for t in PLAYOFF_TEAMS_EAST.values()}
     conf_map.update({t: "West" for t in PLAYOFF_TEAMS_WEST.values()})
@@ -549,27 +567,6 @@ def calculate_viability_score(shot_df, def_df, depth_df, clutch_df, opt_df):
     scores["seed"] = scores.index.map(lambda x: seed_map.get(x, 9))
 
     return scores.sort_values("playoff_viability", ascending=False)
-
-
-# ============================================================
-# YARDIMCI FONKSİYONLAR
-# ============================================================
-
-def _normalize(series, low_val, high_val):
-    """
-    Pandas Series'i [low_val, high_val] aralığına normalize et.
-    low_val > high_val ise ters normalleşme (düşük = iyi).
-    """
-    mn, mx = series.min(), series.max()
-    if mx == mn:
-        return pd.Series([5.0] * len(series), index=series.index)
-
-    if low_val < high_val:
-        # Normal: yüksek değer iyi
-        return low_val + (series - mn) / (mx - mn) * (high_val - low_val)
-    else:
-        # Ters: düşük değer iyi
-        return high_val + (mx - series) / (mx - mn) * (low_val - high_val)
 
 
 # ============================================================
